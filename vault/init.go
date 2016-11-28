@@ -4,10 +4,17 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"log"
 
+	"github.com/hashicorp/go-uuid"
+	"github.com/hashicorp/vault/helper/jsonutil"
 	"github.com/hashicorp/vault/helper/pgpkeys"
 	"github.com/hashicorp/vault/shamir"
 )
+
+type barrierMetadataStorageEntry struct {
+	UnsealMetadata map[string]interface{} `json:"unseal_metadata" mapstructure:"unseal_metadata" structs:"unseal_metadata"`
+}
 
 // InitParams keeps the init function from being littered with too many
 // params, that's it!
@@ -184,6 +191,39 @@ func (c *Core) Initialize(initParams *InitParams) (*InitResult, error) {
 			c.logger.Error("core: failed to seal barrier", "error", err)
 		}
 	}()
+
+	// Create metadata for the unseal keys generated
+	barrierMetadata := &barrierMetadataStorageEntry{
+		UnsealMetadata: make(map[string]interface{}),
+	}
+
+	for _, barrierUnsealKey := range barrierUnsealKeys {
+		unsealKeyID, err := uuid.GenerateUUID()
+		if err != nil {
+			c.logger.Error("core: failed to generate unseal key identifier", "error", err)
+			return nil, err
+		}
+		barrierMetadata.UnsealMetadata[base64.StdEncoding.EncodeToString(barrierUnsealKey)] = unsealKeyID
+	}
+
+	// Store the unseal key metadata
+	barrierMetadataJSON, err := jsonutil.EncodeJSON(barrierMetadata)
+	if err != nil {
+		c.logger.Error("core: failed to encode unseal keys metadata", "error", err)
+		return nil, err
+	}
+	log.Printf("barrierMetadataJSON: %s", barrierMetadataJSON)
+	c.logger.Info("JSON written to log")
+
+	// Store it
+	err = c.barrier.Put(&Entry{
+		Key:   barrierMetadataPath,
+		Value: barrierMetadataJSON,
+	})
+	if err != nil {
+		c.logger.Error("core: failed to store unseal keys metadata", "error", err)
+		return nil, err
+	}
 
 	// Perform initial setup
 	if err := c.setupCluster(); err != nil {

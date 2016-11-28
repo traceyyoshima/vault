@@ -5,6 +5,7 @@ import (
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/x509"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"net"
@@ -13,12 +14,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/armon/go-metrics"
 	log "github.com/mgutz/logxi/v1"
 
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 
-	"github.com/armon/go-metrics"
 	"github.com/hashicorp/errwrap"
 	"github.com/hashicorp/go-multierror"
 	"github.com/hashicorp/go-uuid"
@@ -779,10 +780,10 @@ func (c *Core) Unseal(key []byte) (bool, error) {
 	var masterKey []byte
 	if config.SecretThreshold == 1 {
 		masterKey = c.unlockParts[0]
-		c.unlockParts = nil
+//		c.unlockParts = nil
 	} else {
 		masterKey, err = shamir.Combine(c.unlockParts)
-		c.unlockParts = nil
+//		c.unlockParts = nil
 		if err != nil {
 			return false, fmt.Errorf("failed to compute master key: %v", err)
 		}
@@ -796,6 +797,37 @@ func (c *Core) Unseal(key []byte) (bool, error) {
 	if c.logger.IsInfo() {
 		c.logger.Info("core: vault is unsealed")
 	}
+
+	var barrierMetadata barrierMetadataStorageEntry
+	entry, err := c.barrier.Get(barrierMetadataPath)
+	if err != nil {
+		return false, err
+	}
+
+	// For BC compatibility, log the metadata information only if it is
+	// available
+	if entry != nil {
+		// Decode the barrier metadata information
+		if err = jsonutil.DecodeJSON(entry.Value, &barrierMetadata); err != nil {
+			return false, fmt.Errorf("failed to decode barrier metadata: %v", err)
+		}
+	}
+
+	fmt.Printf("After Unsealing: barrierMetadata: %#v\n", barrierMetadata)
+	c.logger.Info("core: identifiers of keys that were used to unseal the vault are:")
+
+	for _, unlockPart := range c.unlockParts {
+		fmt.Printf("unlockPart: %s\n", base64.StdEncoding.EncodeToString(unlockPart))
+		keyIdentifier, ok := barrierMetadata.UnsealMetadata[base64.StdEncoding.EncodeToString(unlockPart)]
+		if !ok {
+			// Unseal keys stored at the storage does not match the
+			// ones which were used to unlock Vault
+			c.logger.Error("core: unseal key metadata does not contain a matching identifier")
+			return false, fmt.Errorf("core: unseal key metadata does not contain a matching identifier")
+		}
+		c.logger.Info(fmt.Sprintf("%s\n", keyIdentifier))
+	}
+
 
 	// Do post-unseal setup if HA is not enabled
 	if c.ha == nil {

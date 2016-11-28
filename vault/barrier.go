@@ -32,6 +32,9 @@ const (
 	// by the master key.
 	keyringPath = "core/keyring"
 
+	barrierMetadataPath = "core/barrier_metadata"
+
+
 	// keyringUpgradePrefix is the path used to store keyring update entries.
 	// When running in HA mode, the active instance will install the new key
 	// and re-write the keyring. For standby instances, they need an upgrade
