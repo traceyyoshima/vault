@@ -350,7 +350,7 @@ func (c *ServerCommand) Run(args []string) int {
 	info["log level"] = logLevel
 	info["mlock"] = fmt.Sprintf(
 		"supported: %v, enabled: %v",
-		mlock.Supported(), !config.DisableMlock)
+		mlock.Supported(), !config.DisableMlock && mlock.Supported())
 	infoKeys = append(infoKeys, "log level", "mlock", "backend")
 
 	if config.HABackend != nil {
@@ -465,7 +465,17 @@ func (c *ServerCommand) Run(args []string) int {
 	defer c.cleanupGuard.Do(listenerCloseFunc)
 
 	infoKeys = append(infoKeys, "version")
-	info["version"] = version.GetVersion().FullVersionNumber()
+	verInfo := version.GetVersion()
+	info["version"] = verInfo.FullVersionNumber(false)
+	if verInfo.Revision != "" {
+		info["version sha"] = strings.Trim(verInfo.Revision, "'")
+		infoKeys = append(infoKeys, "version sha")
+	}
+	infoKeys = append(infoKeys, "cgo")
+	info["cgo"] = "disabled"
+	if version.CgoEnabled {
+		info["cgo"] = "enabled"
+	}
 
 	// Server configuration output
 	padding := 24
@@ -820,6 +830,8 @@ func (c *ServerCommand) setupTelemetry(config *server.Config) error {
 		cfg.CheckManager.Check.ForceMetricActivation = telConfig.CirconusCheckForceMetricActivation
 		cfg.CheckManager.Check.InstanceID = telConfig.CirconusCheckInstanceID
 		cfg.CheckManager.Check.SearchTag = telConfig.CirconusCheckSearchTag
+		cfg.CheckManager.Check.DisplayName = telConfig.CirconusCheckDisplayName
+		cfg.CheckManager.Check.Tags = telConfig.CirconusCheckTags
 		cfg.CheckManager.Broker.ID = telConfig.CirconusBrokerID
 		cfg.CheckManager.Broker.SelectTag = telConfig.CirconusBrokerSelectTag
 

@@ -119,9 +119,13 @@ func (c *Logical) Delete(path string) (*Secret, error) {
 
 func (c *Logical) Unwrap(wrappingToken string) (*Secret, error) {
 	var data map[string]interface{}
-	if wrappingToken != "" && wrappingToken != c.c.Token() {
-		data = map[string]interface{}{
-			"token": wrappingToken,
+	if wrappingToken != "" {
+		if c.c.Token() == "" {
+			c.c.SetToken(wrappingToken)
+		} else if wrappingToken != c.c.Token() {
+			data = map[string]interface{}{
+				"token": wrappingToken,
+			}
 		}
 	}
 
@@ -131,9 +135,10 @@ func (c *Logical) Unwrap(wrappingToken string) (*Secret, error) {
 	}
 
 	resp, err := c.c.RawRequest(r)
-	if resp != nil {
-		defer resp.Body.Close()
+	if resp == nil {
+		return nil, nil
 	}
+	defer resp.Body.Close()
 	if err != nil && resp.StatusCode != 404 {
 		return nil, err
 	}
